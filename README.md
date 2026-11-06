@@ -1,41 +1,50 @@
 # Papelera Universal OS
 
-Software de escritorio **offline-first** para Papelera Universal: productos, precios, importación de proveedores, stock, compras, ventas, caja y comprobantes internos.
+**Prototipo local v0.1 — NO listo para producción ni facturación fiscal.**
 
-## Estado
-**Etapa de especificación; no existe una aplicación operativa todavía.** El documento maestro completo v1.0 se entregó por separado al propietario el 05/11/2026 y debe incorporarse a `docs/MASTER.md` antes del desarrollo.
+Aplicación de escritorio offline-first con Python 3.10+, Tkinter y SQLite. Esta implementación valida la operación local; el documento maestro define la evolución hacia una arquitectura extensible, con Tauri/React como alternativa para una versión posterior.
 
-## Arquitectura objetivo
-- Tauri 2 + React + TypeScript; instalación local Windows.
-- SQLite local y migraciones versionadas; sin hosting, dominio o suscripción obligatoria.
-- Movimientos de inventario auditables; compras/ventas atómicas.
-- Importaciones Excel con staging, homologación de códigos y revisión previa.
-- Reglas de precios configurables por lista, categoría, producto, tramo y excepción.
-- Preparado para API, sucursales y e-commerce en versiones futuras; no son parte del MVP.
+## Iniciar
+1. Instalar Python 3.10 o posterior, incluyendo Tkinter.
+2. Descargar el código del repositorio (`Code > Download ZIP`).
+3. Ejecutar `INICIAR_WINDOWS.bat` (Windows) o `sh INICIAR_MAC.command` (macOS).
+4. Importar el archivo **privado** de Papelera Universal desde la interfaz, una sola vez.
+5. Importar la lista **privada** de Del Mar para revisión de coincidencias.
 
-## Datos de origen
-- `Libro2.xlsx`: fuente vigente de Papelera Universal, confirmada por el propietario.
-- `lista-de-precios 22 10 (1).xlsx`: lista Del Mar; vigencia señalada 12/10/2026.
-- **NO SUBIR ESTOS EXCEL AL REPOSITORIO PÚBLICO.** Mantenerlos en el equipo del propietario. Utilizar datos sintéticos en tests.
-- No interpretar automáticamente la columna `Margen %` como porcentaje: aparecen factores multiplicadores, y los precios efectivos pueden tener excepciones.
-- `Stock Final Uds` constituye el saldo de apertura; no reproducir también compras/ventas históricos en el libro de movimientos.
-- Verificar el significado de `Precio 3 Uds`, `Precio 5 Uds`, `Precio 50 Uds` y `Precio Gastro` antes de utilizarlos en caja.
+También puede ejecutarse desde terminal:
 
-## Secuencia P0
-1. Scaffold Tauri, React, SQLite, GitHub Actions y pruebas.
-2. Importador Libro2, conciliación e informe de errores.
-3. Catálogo editable.
-4. Parser Del Mar multisección y mapeos aprobados.
-5. Motor de costo/precios con simulación y aprobación.
-6. Libro mayor de stock, compras y recepciones.
-7. POS, caja y ticket **NO FISCAL**.
-8. Backups, restauración, pruebas e instalador Windows.
+```sh
+python papelera_os.py import-universal "ruta/Libro2.xlsx"
+python papelera_os.py import-delmar "ruta/lista-de-precios 22 10 (1).xlsx"
+python papelera_os.py gui
+python -m unittest discover -s tests -v
+```
 
-## Política fiscal
-La integración ARCA se implementará en una fase posterior con validación normativa y autorización electrónica. Un ticket interno no equivale a factura fiscal.
+La base local predeterminada se crea en `~/PapeleraUniversalOS/papelera.db`. El repositorio **no incluye** datos comerciales, costos reales ni stock del negocio.
 
-## Criterios de calidad
-Preservar archivos fuente, operaciones monetarias exactas, trazabilidad completa, ausencia de duplicaciones, controles de permiso, pruebas automatizadas y restauración verificada antes de declarar la aplicación lista para uso productivo.
+## Implementado
+- Catálogo y búsqueda.
+- Importación de Excel con detección de duplicados y salvaguarda de apertura.
+- Staging de lista Del Mar y candidatos de coincidencia **sin modificar precios**.
+- Simulación de precios con factor, recargo sobre costo o margen bruto.
+- Ajustes de inventario auditados.
+- Venta local con descuento transaccional de stock.
+- Comprobante interno marcado **NO FISCAL**.
+- Backup SQLite con verificación de integridad.
 
-## Límites
-La meta de dos jornadas es un MVP experimental y está condicionada a pruebas. La integración ARCA, la sincronización multi-sucursal y el e-commerce están expresamente fuera de ese alcance inicial.
+## Pendiente
+Validación manual de homologaciones y unidades; actualización aprobada de precios; reglas por tramo, promociones; compras y recepción; POS y caja completos; usuarios y permisos; restauración asistida; instalador Windows; integración ARCA; sincronización entre sucursales y e-commerce.
+
+## Reglas de protección
+- **No subir Excel originales, bases de datos, credenciales ni backups a un repositorio público.**
+- El campo `Margen %` histórico puede contener **factores multiplicadores**, no porcentajes.
+- Los códigos coincidentes entre proveedor y comercio **no acreditan equivalencia de producto o presentación**.
+- Los tickets internos no tienen validez fiscal.
+- `Libro2.xlsx` es la fuente vigente según confirmación del propietario; no reinterpretar el stock final como suma adicional de movimientos históricos.
+- Las pruebas del repositorio usan datos sintéticos. Antes de uso real se necesitan pruebas adicionales y validación en Windows.
+
+## Documento maestro
+[Especificación completa v1.0](docs/MASTER_PAPELERA_UNIVERSAL_OS.md).
+
+## Estado del repositorio
+Código fuente del prototipo publicado en `papelera_os.py`, lanzadores y pruebas incluidos. **No existe todavía un instalador .exe** ni una versión certificada para caja.
