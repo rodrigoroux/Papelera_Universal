@@ -1,0 +1,18 @@
+PAPELERA UNIVERSAL OS - PROTOTIPO v0.1
+
+Este prototipo NO emite facturas fiscales y NO debe reemplazar la caja actual.
+No contiene datos comerciales ni base precargada en GitHub.
+
+Requisitos: Python 3.10 o posterior y Tkinter.
+Windows: doble clic en INICIAR_WINDOWS.bat
+Mac: ejecutar sh INICIAR_MAC.command
+
+Importar una sola vez desde terminal:
+python papelera_os.py import-universal "C:\\ruta\\Libro2.xlsx"
+python papelera_os.py import-delmar "C:\\ruta\\lista-de-precios 22 10 (1).xlsx"
+
+La base queda en la carpeta personal ~/PapeleraUniversalOS/papelera.db
+No subir la base ni los Excel originales al repositorio público.
+
+Pruebas:
+python -m unittest discover -s tests -v
