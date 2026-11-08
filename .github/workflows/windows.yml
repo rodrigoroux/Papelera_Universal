@@ -1,0 +1,31 @@
+name: Instalador Windows
+on:
+  workflow_dispatch:
+  push:
+    branches: [desarrollo/operacion-local]
+permissions:
+  contents: write
+jobs:
+  instalador:
+    if: github.event.repository.private == false
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: ''
+      - name: Compilar y ejecutar pruebas
+        shell: pwsh
+        run: ./packaging/build.ps1
+      - name: Verificar instalación y actualización
+        shell: pwsh
+        run: ./packaging/verify.ps1
+      - name: Publicar instalador de prueba verificado
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "prueba-windows-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          gh release create $tag release/PapeleraUniversalOS-Setup-x64.exe --target $env:GITHUB_SHA --prerelease --title "Papelera Universal OS · prueba Windows" --notes "Instalador x64 de prueba. No emite facturas fiscales. Validar en una caja de prueba antes de usar datos del local."
