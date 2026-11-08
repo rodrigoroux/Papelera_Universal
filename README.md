@@ -1,50 +1,33 @@
 # Papelera Universal OS
 
-**Prototipo local v0.1 — NO listo para producción ni facturación fiscal.**
+Aplicación local de escritorio para una sucursal, con Python, Tkinter y SQLite. Rama de desarrollo 0.2. Los comprobantes internos se identifican como **NO FISCALES**.
 
-Aplicación de escritorio offline-first con Python 3.10+, Tkinter y SQLite. Esta implementación valida la operación local; el documento maestro define la evolución hacia una arquitectura extensible, con Tauri/React como alternativa para una versión posterior.
+## Inicio
 
-## Iniciar
-1. Instalar Python 3.10 o posterior, incluyendo Tkinter.
-2. Descargar el código del repositorio (`Code > Download ZIP`).
-3. Ejecutar `INICIAR_WINDOWS.bat` (Windows) o `sh INICIAR_MAC.command` (macOS).
-4. Importar el archivo **privado** de Papelera Universal desde la interfaz, una sola vez.
-5. Importar la lista **privada** de Del Mar para revisión de coincidencias.
+En Windows con Python 3.10+ y Tkinter, ejecutar INICIAR_WINDOWS.bat. En macOS, ejecutar INICIAR_MAC.command con sh. El primer ingreso crea la cuenta administradora. La aplicación almacena los datos en la carpeta PapeleraUniversalOS del perfil del usuario, fuera del directorio de instalación. Las cuentas del programa controlan la interfaz y la CLI. Quien tenga acceso directo al archivo SQLite mediante el sistema operativo también tiene acceso a los datos.
 
-También puede ejecutarse desde terminal:
+## Operación disponible
 
-```sh
-python papelera_os.py import-universal "ruta/Libro2.xlsx"
-python papelera_os.py import-delmar "ruta/lista-de-precios 22 10 (1).xlsx"
-python papelera_os.py gui
-python -m unittest discover -s tests -v
-```
+1. Importar una única apertura desde el archivo privado de Papelera Universal. Se usa la columna N como saldo inicial. El sistema conserva los precios históricos y señala duplicados y saldos negativos.
+2. Cargar Del Mar y buscar una fila. Validar el artículo, la escala y cuántas unidades base contiene la presentación. La propuesta conserva el precio de venta por defecto. Un recálculo requiere elegir fórmula, revisar y aprobar. El umbral de variación es configurable.
+3. Crear pedidos de compra por artículo, recibir total o parcialmente, y consultar las cantidades pendientes. Cada recepción incrementa existencias sin sobrescribir el costo aprobado.
+4. Abrir caja, elegir productos, armar el carrito y cobrar. Se puede identificar al cliente y combinar efectivo, transferencia y tarjeta. Los importes deben sumar el total. Los movimientos manuales, apertura, arqueo y cierre quedan registrados.
+5. El administrador puede anular una venta completa y revertir los pagos en la caja abierta. Los tickets y movimientos originales permanecen consultables.
+6. Consultar el historial, existencias críticas y movimientos. Exportar informes a CSV compatible con Excel.
+7. Crear respaldos manuales o usar la copia diaria al ingresar. La restauración comprueba esquema, integridad y referencias, conserva una copia previa y obliga a volver a ingresar.
 
-La base local predeterminada se crea en `~/PapeleraUniversalOS/papelera.db`. El repositorio **no incluye** datos comerciales, costos reales ni stock del negocio.
+## Instalador de Windows
 
-## Implementado
-- Catálogo y búsqueda.
-- Importación de Excel con detección de duplicados y salvaguarda de apertura.
-- Staging de lista Del Mar y candidatos de coincidencia **sin modificar precios**.
-- Simulación de precios con factor, recargo sobre costo o margen bruto.
-- Ajustes de inventario auditados.
-- Venta local con descuento transaccional de stock.
-- Comprobante interno marcado **NO FISCAL**.
-- Backup SQLite con verificación de integridad.
+El flujo de compilación usa un runner Windows estándar únicamente en repositorio público, ejecuta las pruebas, empaqueta Python y Tkinter, instala, abre el programa en modo de diagnóstico y verifica una reinstalación con ventas de prueba. Una ejecución satisfactoria publica el instalador como **prerelease** en Releases. La disponibilidad depende del resultado del flujo. También se puede compilar en una PC Windows x64 con Python 3.12 e Inno Setup 6 mediante packaging/build.ps1. El equipo de caja solo necesita el instalador resultante. El escritorio y el menú Inicio reciben accesos directos. La aplicación y sus datos quedan en carpetas distintas.
 
-## Pendiente
-Validación manual de homologaciones y unidades; actualización aprobada de precios; reglas por tramo, promociones; compras y recepción; POS y caja completos; usuarios y permisos; restauración asistida; instalador Windows; integración ARCA; sincronización entre sucursales y e-commerce.
+## Validación
 
-## Reglas de protección
-- **No subir Excel originales, bases de datos, credenciales ni backups a un repositorio público.**
-- El campo `Margen %` histórico puede contener **factores multiplicadores**, no porcentajes.
-- Los códigos coincidentes entre proveedor y comercio **no acreditan equivalencia de producto o presentación**.
-- Los tickets internos no tienen validez fiscal.
-- `Libro2.xlsx` es la fuente vigente según confirmación del propietario; no reinterpretar el stock final como suma adicional de movimientos históricos.
-- Las pruebas del repositorio usan datos sintéticos. Antes de uso real se necesitan pruebas adicionales y validación en Windows.
+Ejecutar python -m unittest discover -s tests -v. Las pruebas utilizan datos sintéticos y bases temporales. No incluir Excel reales, copias locales, claves ni bases en Git. El código de la rama principal en 4fbb4e1 conserva la versión anterior.
 
-## Documento maestro
-[Especificación completa v1.0](docs/MASTER_PAPELERA_UNIVERSAL_OS.md).
+## Alcance pendiente
 
-## Estado del repositorio
-Código fuente del prototipo publicado en `papelera_os.py`, lanzadores y pruebas incluidos. **No existe todavía un instalador .exe** ni una versión certificada para caja.
+Validar instalación y operación en la PC real del local, medios de impresión y significado de los tramos del Excel. La anulación cubre la venta completa. Los precios por presentación/segmento, descuentos, promociones, devoluciones parciales, informes de rentabilidad y la integración fiscal requieren trabajo adicional. La solicitud fiscal local queda pendiente y no solicita ni almacena un CAE.
+
+La próxima integración debe validar con ARCA el régimen fiscal, el punto de venta, los certificados y la autorización WSAA para WSFEv1. Ante una respuesta incierta es necesario consultar el comprobante en el entorno correcto antes de reintentar. Referencias oficiales: https://www.arca.gob.ar/ws/documentacion/ws-factura-electronica.asp y https://www.arca.gob.ar/fe/ayuda/homologacion_externa.asp.
+
+La especificación de alcance está en docs/MASTER_PAPELERA_UNIVERSAL_OS.md.

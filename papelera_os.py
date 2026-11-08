@@ -1,5 +1,7 @@
 """Papelera Universal OS v0.1: prototipo local, sin facturación fiscal."""
 from __future__ import annotations
+from contextlib import nullcontext
+import os, tempfile
 import argparse, hashlib, json, re, sqlite3, uuid, zipfile
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -12,7 +14,13 @@ NS={'m':M,'r':R}
 def now(): return datetime.now(timezone.utc).isoformat()
 def D(x):
     if x is None or str(x).strip()=='': return Decimal('0')
-    return Decimal(str(x).replace(',','.'))
+    try:
+        value=Decimal(str(x).strip().replace(',','.'))
+    except InvalidOperation as ex:
+        raise ValueError('Número inválido') from ex
+    if not value.is_finite() or abs(value)>Decimal('1000000000000000'):
+        raise ValueError('Número fuera de rango')
+    return value
 def money(x):
     if x is None or str(x).strip()=='': return None
     try: return int((D(x)*100).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
@@ -67,10 +75,13 @@ def connect(path):
       product_id TEXT NOT NULL REFERENCES products(id),qty TEXT NOT NULL,unit_price_cents INTEGER NOT NULL,total_cents INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS audit(id TEXT PRIMARY KEY,action TEXT NOT NULL,details TEXT NOT NULL,created_at TEXT NOT NULL);
     """)
+    from operaciones import migrate
+    migrate(c)
     return c
 def audit(c,action,payload):
     c.execute('INSERT INTO audit VALUES(?,?,?,?)',(str(uuid.uuid4()),action,json.dumps(payload,ensure_ascii=False),now()))
 def import_universal(c,path):
+    kind="universal"
     path=Path(path);digest=hashlib.sha256(path.read_bytes()).hexdigest()
     if c.execute("SELECT 1 FROM imports WHERE kind='universal' AND sha256=?",(digest,)).fetchone():
         return {'status':'already_imported','count':0}
@@ -88,6 +99,11 @@ def import_universal(c,path):
           money(v.get('G')),money(v.get('H')),money(v.get('I')),money(v.get('J')),str(qty),n))
     if not data:raise ValueError('No hay productos reconocibles')
     with c:
+        c.execute('BEGIN IMMEDIATE')
+        if c.execute('SELECT 1 FROM imports WHERE kind=? AND sha256=?',(kind,digest)).fetchone():
+            return {'status':'already_imported','count':0}
+        if kind=='universal' and c.execute('SELECT 1 FROM products LIMIT 1').fetchone():
+            raise ValueError('La base ya contiene productos')
         imp=str(uuid.uuid4())
         c.execute('INSERT INTO imports VALUES(?,?,?,?,?,?)',(imp,'universal',path.name,digest,len(data),now()))
         for code,name,cost,factor,price,p3,p5,p50,gastro,qty,n in data:
@@ -99,6 +115,7 @@ def import_universal(c,path):
         audit(c,'import_universal',{'count':len(data),'warnings':warnings})
     return {'status':'imported','count':len(data),'warnings':warnings}
 def import_delmar(c,path):
+    kind="delmar"
     path=Path(path);digest=hashlib.sha256(path.read_bytes()).hexdigest()
     if c.execute("SELECT 1 FROM imports WHERE kind='delmar' AND sha256=?",(digest,)).fetchone():
         return {'status':'already_imported','count':0}
@@ -114,6 +131,9 @@ def import_delmar(c,path):
     if not rows:raise ValueError('Lista Del Mar sin productos reconocibles')
     hits=0
     with c:
+        c.execute('BEGIN IMMEDIATE')
+        if c.execute('SELECT 1 FROM imports WHERE kind=? AND sha256=?',(kind,digest)).fetchone():
+            return {'status':'already_imported','count':0}
         imp=str(uuid.uuid4())
         c.execute('INSERT INTO imports VALUES(?,?,?,?,?,?)',(imp,'delmar',path.name,digest,len(rows),now()))
         for sheet,n,category,code,name,minor,major in rows:
@@ -154,6 +174,7 @@ def adjust_stock(c,code,delta,reason):
     if qty==0:raise ValueError('Cantidad cero')
     if not reason.strip():raise ValueError('Motivo obligatorio')
     with c:
+        c.execute('BEGIN IMMEDIATE')
         p=c.execute('SELECT id,stock_qty FROM products WHERE code=?',(str(code),)).fetchone()
         if not p:raise ValueError('Producto inexistente')
         new=D(p['stock_qty'])+qty
@@ -163,19 +184,22 @@ def adjust_stock(c,code,delta,reason):
             (str(uuid.uuid4()),p['id'],str(qty),'adjustment',reason,now()))
         audit(c,'adjust_stock',{'code':str(code),'delta':str(qty),'reason':reason})
     return str(new)
-def sell(c,items,payment='efectivo'):
+def sell(c,items,payment='efectivo',*,managed=False):
     if not items:raise ValueError('Carrito vacío')
     basket={}
     for code,qty in items:
         q=D(qty)
         if q<=0:raise ValueError('Cantidad inválida')
         basket[str(code)]=basket.get(str(code),Decimal(0))+q
-    with c:
+    with (nullcontext() if managed else c):
+        if not managed:
+            c.execute("BEGIN IMMEDIATE")
         rows=[];total=0
         for code,q in basket.items():
             p=c.execute('SELECT * FROM products WHERE code=?',(code,)).fetchone()
             if not p:raise ValueError('Código inexistente '+code)
-            if p['unit_price_cents'] is None:raise ValueError('Sin precio '+code)
+            if c.execute('SELECT 1 FROM product_details WHERE product=? AND active=0',(p['id'],)).fetchone():raise ValueError('Producto inactivo '+code)
+            if p['unit_price_cents'] is None or p['unit_price_cents']<0:raise ValueError('Sin precio '+code)
             if D(p['stock_qty'])<q:raise ValueError('Stock insuficiente '+code)
             line=int((Decimal(p['unit_price_cents'])*q).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
             rows.append((p,q,line));total+=line
@@ -201,82 +225,26 @@ def receipt(sale):
     return '\n'.join(lines)
 def backup(c,path):
     path=Path(path);path.parent.mkdir(parents=True,exist_ok=True)
-    target=sqlite3.connect(path)
-    try:c.backup(target)
-    finally:target.close()
-    verify=sqlite3.connect(path)
+    live=Path(c.execute('PRAGMA database_list').fetchone()[2])
+    if path.resolve()==live.resolve() or (path.exists() and path.samefile(live)):
+        raise ValueError('El respaldo debe ser distinto de la base activa')
+    fd,tmp=tempfile.mkstemp(dir=path.parent, suffix='.tmp')
+    os.close(fd)
     try:
-        if verify.execute('PRAGMA integrity_check').fetchone()[0]!='ok':
-            raise RuntimeError('Respaldo corrupto')
-    finally:verify.close()
+        target=sqlite3.connect(tmp)
+        try:
+            c.backup(target)
+            if target.execute('PRAGMA integrity_check').fetchone()[0]!='ok' or target.execute('PRAGMA foreign_key_check').fetchone():
+                raise ValueError('El respaldo no superó la verificación')
+        finally:
+            target.close()
+        os.replace(tmp,path)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
     return str(path)
 def run_gui(c):
-    import tkinter as tk
-    from tkinter import ttk,filedialog,messagebox,simpledialog
-    root=tk.Tk();root.title('Papelera Universal OS · Prototipo NO FISCAL');root.geometry('1160x700')
-    top=ttk.Frame(root,padding=12);top.pack(fill='x')
-    ttk.Label(top,text='PAPELERA UNIVERSAL OS',font=('Arial',17,'bold')).pack(side='left')
-    query=tk.StringVar()
-    ttk.Entry(top,textvariable=query,width=37).pack(side='right')
-    ttk.Label(top,text='Buscar código / nombre').pack(side='right',padx=8)
-    fields=('code','name','cost','price','stock')
-    tree=ttk.Treeview(root,columns=fields,show='headings')
-    for key,label,width in [('code','Código',120),('name','Producto',560),('cost','Costo',130),
-       ('price','Precio venta',130),('stock','Stock',100)]:
-        tree.heading(key,text=label);tree.column(key,width=width)
-    tree.pack(fill='both',expand=True,padx=12,pady=8)
-    status=tk.StringVar(value='Datos locales');ttk.Label(root,textvariable=status).pack()
-    def refresh(*_):
-        for node in tree.get_children():tree.delete(node)
-        t='%'+query.get().strip()+'%'
-        data=c.execute('SELECT * FROM products WHERE code LIKE ? OR name LIKE ? ORDER BY name LIMIT 500',(t,t)).fetchall()
-        for row in data:
-            def fmt(n):return '' if n is None else '$ %.2f'%(n/100)
-            tree.insert('','end',values=(row['code'],row['name'],fmt(row['cost_cents']),
-              fmt(row['unit_price_cents']),row['stock_qty']))
-        status.set('%d productos visibles · SIN FACTURACIÓN FISCAL'%len(data))
-    query.trace_add('write',refresh)
-    toolbar=ttk.Frame(root,padding=12);toolbar.pack(fill='x')
-    def selected():
-        picked=tree.selection()
-        if not picked:messagebox.showwarning('Atención','Seleccioná un producto');return None
-        return str(tree.item(picked[0])['values'][0])
-    def load(kind):
-        path=filedialog.askopenfilename(filetypes=[('Excel','*.xlsx')])
-        if not path:return
-        try:
-            result=import_universal(c,path) if kind=='universal' else import_delmar(c,path)
-            messagebox.showinfo('Importación',json.dumps(result,ensure_ascii=False,indent=2)[:1600]);refresh()
-        except Exception as ex:messagebox.showerror('Error',str(ex))
-    def stock():
-        code=selected()
-        if code is None:return
-        qty=simpledialog.askstring('Stock','Cantidad (negativa para restar)')
-        if qty is None:return
-        reason=simpledialog.askstring('Motivo','Motivo del ajuste')
-        if reason is None:return
-        try:adjust_stock(c,code,qty,reason);refresh()
-        except Exception as ex:messagebox.showerror('Error',str(ex))
-    def sale():
-        code=selected()
-        if code is None:return
-        qty=simpledialog.askstring('Venta','Cantidad',initialvalue='1')
-        if qty is None or not messagebox.askyesno('Confirmar','¿Registrar venta y descontar stock?'):return
-        try:messagebox.showinfo('Comprobante NO FISCAL',receipt(sell(c,[(code,qty)])));refresh()
-        except Exception as ex:messagebox.showerror('Error',str(ex))
-    def simulate():
-        vals=preview_prices(c)
-        messagebox.showinfo('Simulación',str(len(vals))+' posibles coincidencias; NO SE APLICARON CAMBIOS.\n'+
-          '\n'.join(str(x['supplier_code'])+': '+str(x['possible_new_cost'])+' centavos' for x in vals[:15]))
-    def save():
-        path=filedialog.asksaveasfilename(defaultextension='.sqlite')
-        if path:
-            try:backup(c,path);messagebox.showinfo('Backup','Guardado y verificado')
-            except Exception as ex:messagebox.showerror('Error',str(ex))
-    for label,callback in [('Importar Papelera',lambda:load('universal')),('Importar Del Mar',lambda:load('delmar')),
-        ('Simular precios',simulate),('Ajustar stock',stock),('Venta rápida',sale),('Respaldar',save)]:
-        ttk.Button(toolbar,text=label,command=callback).pack(side='left',padx=4)
-    refresh();root.mainloop()
+    from escritorio import launch
+    launch(c)
 def cli():
     p=argparse.ArgumentParser(description='Papelera Universal OS v0.1')
     p.add_argument('--db',default=str(Path.home()/'PapeleraUniversalOS'/'papelera.db'))
@@ -288,6 +256,8 @@ def cli():
     x=sp.add_parser('adjust-stock');x.add_argument('code');x.add_argument('delta');x.add_argument('reason')
     x=sp.add_parser('sell');x.add_argument('code');x.add_argument('qty')
     args=p.parse_args();c=connect(args.db)
+    if args.action!='gui' and c.execute('SELECT 1 FROM users LIMIT 1').fetchone():
+        p.error('Esta base tiene usuarios. Ingresá por la aplicación para operar con permisos.')
     if args.action=='gui':run_gui(c);return
     if args.action=='import-universal':result=import_universal(c,args.path)
     elif args.action=='import-delmar':result=import_delmar(c,args.path)

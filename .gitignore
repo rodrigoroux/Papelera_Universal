@@ -35,3 +35,9 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+__pycache__/
+*.py[cod]
+/build/
+/release/
+*.spec
