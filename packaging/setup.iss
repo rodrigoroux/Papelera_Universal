@@ -1,7 +1,7 @@
 [Setup]
 AppId={{AD08A378-7696-44A8-9FF4-FCD661EC005C}
 AppName=Papelera Universal OS
-AppVersion=0.2
+AppVersion=0.3
 DefaultDirName={localappdata}\Programs\Papelera Universal OS
 DefaultGroupName=Papelera Universal OS
 PrivilegesRequired=lowest

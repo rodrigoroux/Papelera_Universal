@@ -251,12 +251,22 @@ class Desk:
         if not self.basket:
             raise ValueError('Carrito vacío')
         expected_prices=dict(self.cart_prices)
+        discount=0
+        reason=''
+        if self.service.role=='administrador':
+            value,reason=self.ask('Descuento opcional',('Descuento en pesos $','0'),('Motivo (si hay descuento)',''))
+            discount=cents(value)
+            if discount<0 or discount>=self.amount and discount:
+                raise ValueError('El descuento debe ser positivo y menor que el subtotal')
+            if discount and not reason:
+                raise ValueError('El descuento requiere un motivo')
+        net=self.amount-discount
         clients=['Consumidor final']+[f"{r[0]} · {r[1]}" for r in self.db.execute('SELECT id,name FROM customers ORDER BY name')]
-        cash,card,transfer,customer=self.ask('Cobrar $ '+pesos(self.amount),('Efectivo $',pesos(self.amount)),('Tarjeta $','0'),('Transferencia $','0'),('Cliente',tuple(clients)))
+        cash,card,transfer,customer=self.ask('Cobrar $ '+pesos(net),('Efectivo $',pesos(net)),('Tarjeta $','0'),('Transferencia $','0'),('Cliente',tuple(clients)))
         pays={k:cents(v) for k,v in zip(('efectivo','tarjeta','transferencia'),(cash,card,transfer)) if D(v)!=0}
-        if messagebox.askyesno('Confirmar venta','¿Registrar el cobro de $ '+pesos(self.amount)+'?'):
+        if messagebox.askyesno('Confirmar venta',f'Subtotal $ {pesos(self.amount)} · Descuento $ {pesos(discount)}\n¿Registrar el cobro de $ {pesos(net)}?'):
             try:
-                data=self.service.checkout(list(self.basket.items()),pays,None if customer==clients[0] else int(customer.split(' · ')[0]),uid(),expected_prices)
+                data=self.service.checkout(list(self.basket.items()),pays,None if customer==clients[0] else int(customer.split(' · ')[0]),uid(),expected_prices,discount,reason)
             except ValueError:
                 self.refresh()
                 raise
@@ -318,7 +328,7 @@ class Desk:
         if self.report.get()=='Ventas':
             rows,totals=sales_report(self.db,self.date_start.get().strip(),self.date_end.get().strip(),self.sale_state.get())
             self.report_total.set(f"{len(rows)} ventas · Registradas $ {pesos(totals['confirmed'])} · Anuladas $ {pesos(totals['cancelled'])}. Fecha de venta; las anuladas se excluyen del total registrado.")
-            return ['Ticket','Fecha','Cliente','Total $','Medio','Estado'],[(r['ticket'],r['fecha'],r['cliente'],pesos(r['total_cents']),r['medio'],r['estado']) for r in rows]
+            return ['Ticket','Fecha','Cliente','Subtotal $','Descuento $','Total $','Medio','Estado'],[(r['ticket'],r['fecha'],r['cliente'],pesos(r['total_cents']+r['discount_cents']),pesos(r['discount_cents']),pesos(r['total_cents']),r['medio'],r['estado']) for r in rows]
         self.report_total.set('Vista: primeras 500 filas. CSV: todas las filas. Los filtros de fecha y estado se aplican a Ventas.')
         sql=REPORTS[self.report.get()]
         rows=self.db.execute(sql)
@@ -353,7 +363,11 @@ class Desk:
         if not s:
             raise ValueError('Venta inexistente')
         lines=self.db.execute('SELECT p.code,i.qty,i.total_cents FROM sale_items i JOIN products p ON p.id=i.product_id WHERE sale_id=?',(s['id'],)).fetchall()
-        messagebox.showinfo('Ticket interno',receipt(dict(s,payment=s['payment_method'],lines=lines)))
+        data=dict(s,payment=s['payment_method'],lines=lines)
+        discount=self.db.execute('SELECT amount,reason FROM sale_discounts WHERE sale=?',(s['id'],)).fetchone()
+        if discount:
+            data.update(discount_cents=discount['amount'],discount_reason=discount['reason'],subtotal_cents=s['total_cents']+discount['amount'])
+        messagebox.showinfo('Ticket interno',receipt(data))
 
     def pending(self):
         self.service.queue_fiscal(int(self.ask('Solicitud pendiente de ARCA',('Número de ticket',''))[0]))

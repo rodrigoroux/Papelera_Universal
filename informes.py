@@ -23,10 +23,11 @@ def sales_report(db, start='', end='', state='Todas'):
     if state!='Todas':
         clauses.append('r.sale IS '+('NOT ' if state=='Anuladas' else '')+'NULL')
     query="""SELECT s.receipt_number ticket,datetime(s.created_at,'localtime') fecha,
-        COALESCE(k.name,'Consumidor final') cliente,s.total_cents,
+        COALESCE(k.name,'Consumidor final') cliente,s.total_cents,COALESCE(d.amount,0) discount_cents,
         s.payment_method medio,CASE WHEN r.sale IS NULL THEN 'Registrada' ELSE 'Anulada' END estado
         FROM sales s LEFT JOIN checkouts c ON c.sale=s.id
-        LEFT JOIN customers k ON k.id=c.customer LEFT JOIN reversals r ON r.sale=s.id"""
+        LEFT JOIN customers k ON k.id=c.customer LEFT JOIN reversals r ON r.sale=s.id
+        LEFT JOIN sale_discounts d ON d.sale=s.id"""
     rows=[dict(r) for r in db.execute(query+(' WHERE '+' AND '.join(clauses) if clauses else '')+' ORDER BY s.receipt_number DESC',params)]
     totals={key:sum(r['total_cents'] for r in rows if r['estado']==label)
             for key,label in (('confirmed','Registrada'),('cancelled','Anulada'))}

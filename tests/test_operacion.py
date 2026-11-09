@@ -7,7 +7,7 @@ from unittest.mock import patch
 from zipfile import ZipFile
 from xml.etree import ElementTree as ET
 from operaciones import Register, bootstrap, restore, daily_backup
-from papelera_os import connect, backup, D, xlsx_rows, import_universal, import_delmar, sell
+from papelera_os import connect, backup, D, xlsx_rows, import_universal, import_delmar, sell, receipt
 from escritorio import REPORTS
 from informes import sales_report
 
@@ -207,3 +207,58 @@ class OperatingTests(unittest.TestCase):
         for start,end in [('2026-02-30',''),('2026-11-02','2026-11-01'),('01/11/2026','')]:
             with self.assertRaises(ValueError):
                 sales_report(self.db,start,end)
+
+    def test_discount_ticket_report_cash_and_reversal(self):
+        order=self.reg.order('P','001','3',100)
+        self.reg.receive(order,'3','entrada')
+        self.reg.open_till(100)
+        sale=self.reg.checkout([('001','2')],{'efectivo':200,'tarjeta':225},None,'venta',discount=75,discount_reason='Atención comercial')
+        self.assertEqual((sale['subtotal_cents'],sale['total_cents']),(500,425))
+        self.assertIn('DESCUENTO: $ 0.75',receipt(sale))
+        self.assertEqual(self.reg.expected(),300)
+        rows,totals=sales_report(self.db)
+        self.assertEqual((rows[0]['discount_cents'],totals['confirmed']),(75,425))
+        self.reg.reverse(sale['receipt_number'],'Devolución')
+        self.assertEqual(self.reg.expected(),100)
+        self.assertEqual(self.scalar('SELECT stock_qty FROM products'),'3')
+        self.assertEqual(sales_report(self.db)[1],{'confirmed':0,'cancelled':425})
+        snapshot=self.path.with_suffix('.sqlite')
+        backup(self.db,snapshot)
+        restore(self.db,snapshot)
+        self.assertEqual(self.scalar('SELECT amount FROM sale_discounts'),75)
+
+    def test_invalid_discount_is_atomic_and_requires_admin(self):
+        order=self.reg.order('P','001','3',100)
+        self.reg.receive(order,'3','entrada')
+        self.reg.open_till(0)
+        for discount,reason,payment in [(-1,'Motivo',250),(250,'Motivo',1),(251,'Motivo',1),(10,'',240),(10,'Motivo',250),(True,'Motivo',249)]:
+            with self.assertRaises(ValueError):
+                self.reg.checkout([('001','1')],{'efectivo':payment},None,'rechazada',discount=discount,discount_reason=reason)
+            self.assertEqual(self.scalar('SELECT COUNT(*) FROM sales'),0)
+            self.assertEqual(self.scalar('SELECT COUNT(*) FROM sale_discounts'),0)
+            self.assertEqual(self.scalar('SELECT stock_qty FROM products'),'3')
+        self.reg.add_user('caja','clave-caja','vendedor')
+        cashier=Register(self.db,'caja','clave-caja')
+        with self.assertRaises(PermissionError):
+            cashier.checkout([('001','1')],{'efectivo':240},None,'no-autorizada',discount=10,discount_reason='Motivo')
+        cashier.checkout([('001','1')],{'efectivo':250},None,'normal')
+
+    def test_upgrade_and_restore_v1_keeps_existing_sales(self):
+        order=self.reg.order('P','001','2',100)
+        self.reg.receive(order,'2','entrada')
+        self.reg.open_till(0)
+        sale=self.reg.checkout([('001','1')],{'efectivo':250},None,'original')
+        with self.db:
+            self.db.execute('DROP TABLE sale_discounts')
+            self.db.execute('PRAGMA user_version=1')
+        old=self.path.with_suffix('.v1.sqlite')
+        backup(self.db,old)
+        from operaciones import migrate
+        migrate(self.db)
+        self.assertEqual(self.scalar('PRAGMA user_version'),2)
+        migrate(self.db)
+        restore(self.db,old)
+        self.assertEqual(self.scalar('PRAGMA user_version'),2)
+        self.assertEqual(self.scalar('SELECT id FROM sales'),sale['id'])
+        self.assertEqual(self.scalar('SELECT COUNT(*) FROM sale_discounts'),0)
+        self.assertEqual(sales_report(self.db)[1]['confirmed'],250)

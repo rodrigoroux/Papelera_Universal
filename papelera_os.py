@@ -220,6 +220,10 @@ def receipt(sale):
     lines=['PAPELERA UNIVERSAL','*** COMPROBANTE INTERNO - NO FISCAL ***',
       'Venta #'+str(sale['receipt_number']),'Medio: '+sale['payment'],'---------------------']
     for code,qty,line in sale['lines']:lines.append('%s x%s $%.2f'%(code,qty,line/100))
+    if sale.get('discount_cents'):
+        lines.extend(['SUBTOTAL: $ %.2f'%(sale['subtotal_cents']/100),
+                      'DESCUENTO: $ %.2f'%(sale['discount_cents']/100),
+                      'Motivo: '+sale['discount_reason']])
     lines.extend(['---------------------','TOTAL: $ %.2f'%(sale['total_cents']/100),
       'NO VALIDO COMO FACTURA FISCAL'])
     return '\n'.join(lines)

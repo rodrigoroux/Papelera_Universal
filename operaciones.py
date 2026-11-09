@@ -48,19 +48,23 @@ CREATE TABLE fiscal_pending(sale TEXT PRIMARY KEY REFERENCES sales, created TEXT
 
 def migrate(db):
     version = db.execute('PRAGMA user_version').fetchone()[0]
-    if version == 1:
+    if version == 2:
         return
-    if version != 0:
+    if version not in (0,1):
         raise ValueError('Esta base requiere una versión más reciente de la aplicación')
     path = Path(db.execute('PRAGMA database_list').fetchone()[2])
     if db.execute('SELECT EXISTS(SELECT 1 FROM products UNION ALL SELECT 1 FROM imports)').fetchone()[0]:
         backup(db, path.parent / 'respaldos' / ('antes-migracion-' + uid() + '.sqlite'))
     with transaction(db):
+        if db.execute('PRAGMA user_version').fetchone()[0] == 2:
+            return
         if db.execute('PRAGMA user_version').fetchone()[0] == 0:
             for statement in SCHEMA.split(';'):
                 if statement.strip():
                     db.execute(statement)
             db.execute('PRAGMA user_version=1')
+        db.execute('CREATE TABLE sale_discounts(sale TEXT PRIMARY KEY REFERENCES sales, amount INTEGER NOT NULL CHECK(amount>0), reason TEXT NOT NULL, actor TEXT NOT NULL REFERENCES users)')
+        db.execute('PRAGMA user_version=2')
 
 
 def daily_backup(db):
@@ -97,10 +101,12 @@ def validate_snapshot(live, stage):
     if stage.execute('PRAGMA integrity_check').fetchall() != [('ok',)] or stage.execute('PRAGMA foreign_key_check').fetchone():
         raise ValueError('La copia contiene errores de integridad')
     version = stage.execute('PRAGMA user_version').fetchone()[0]
-    if version not in (0, 1):
+    if version not in (0, 1, 2):
         raise ValueError('Versión de copia incompatible')
     core = {'imports','products','sales','sale_items','inventory_movements','supplier_rows','audit'}
     required = core if version == 0 else {r[0] for r in live.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
+    if version < 2:
+        required.discard('sale_discounts')
     for table in required:
         expected = [(r[1],r[2],r[5]) for r in live.execute(f'PRAGMA table_info("{table}")')]
         actual = [(r[1],r[2],r[5]) for r in stage.execute(f'PRAGMA table_info("{table}")')]
@@ -225,7 +231,13 @@ class Register:
             self.db.execute('INSERT INTO cash_entries VALUES(?,?,?,?,?,?)',(uid(),self.till()['id'],amount,reason,now(),self.actor))
             self.log('movimiento_caja',importe=amount,motivo=reason)
 
-    def checkout(self,items,payments,customer,request_id,expected_prices=None):
+    def checkout(self,items,payments,customer,request_id,expected_prices=None,discount=0,discount_reason=''):
+        if type(discount)!=int or discount<0:
+            raise ValueError('Descuento inválido')
+        if discount:
+            self.admin()
+            if not discount_reason.strip():
+                raise ValueError('El descuento requiere un motivo')
         with transaction(self.db):
             if self.db.execute('SELECT 1 FROM checkouts WHERE id=?',(request_id,)).fetchone():
                 raise ValueError('Esta venta ya fue registrada')
@@ -238,6 +250,16 @@ class Register:
             if not payments or any(k not in ('efectivo','tarjeta','transferencia') or type(v)!=int or v<=0 for k,v in payments.items()):
                 raise ValueError('Medios o importes inválidos')
             sale=sell(self.db,items,' + '.join(payments),managed=True)
+            if discount>=sale['total_cents'] and discount:
+                raise ValueError('El descuento debe ser menor que el subtotal')
+            if discount:
+                sale['subtotal_cents']=sale['total_cents']
+                sale['discount_cents']=discount
+                sale['discount_reason']=discount_reason.strip()
+                sale['total_cents']-=discount
+                self.db.execute('UPDATE sales SET total_cents=? WHERE id=?',(sale['total_cents'],sale['id']))
+                self.db.execute('INSERT INTO sale_discounts VALUES(?,?,?,?)',(sale['id'],discount,discount_reason.strip(),self.actor))
+                self.log('descuento',venta=sale['id'],importe=discount,motivo=discount_reason.strip())
             if sum(payments.values())!=sale['total_cents']:
                 raise ValueError('Los medios de pago deben sumar el total exacto')
             self.db.execute('INSERT INTO checkouts VALUES(?,?,?,?,?)',(request_id,sale['id'],till,customer,self.actor))
