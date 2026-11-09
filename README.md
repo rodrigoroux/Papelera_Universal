@@ -1,6 +1,6 @@
 # Papelera Universal OS
 
-Aplicación local de escritorio para una sucursal, con Python, Tkinter y SQLite. Rama de desarrollo 0.2. Los comprobantes internos se identifican como **NO FISCALES**.
+Aplicación local de escritorio para una sucursal, con Python, Tkinter y SQLite. Rama de desarrollo 0.3. Los comprobantes internos se identifican como **NO FISCALES**.
 
 ## Inicio
 

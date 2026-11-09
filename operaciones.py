@@ -56,6 +56,8 @@ def migrate(db):
     if db.execute('SELECT EXISTS(SELECT 1 FROM products UNION ALL SELECT 1 FROM imports)').fetchone()[0]:
         backup(db, path.parent / 'respaldos' / ('antes-migracion-' + uid() + '.sqlite'))
     with transaction(db):
+        if db.execute('PRAGMA user_version').fetchone()[0] == 2:
+            return
         if db.execute('PRAGMA user_version').fetchone()[0] == 0:
             for statement in SCHEMA.split(';'):
                 if statement.strip():
