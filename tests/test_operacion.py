@@ -9,6 +9,7 @@ from xml.etree import ElementTree as ET
 from operaciones import Register, bootstrap, restore, daily_backup
 from papelera_os import connect, backup, D, xlsx_rows, import_universal, import_delmar, sell
 from escritorio import REPORTS
+from informes import sales_report
 
 
 def workbook(path, rows):
@@ -171,3 +172,38 @@ class OperatingTests(unittest.TestCase):
         for value in ('NaN','Infinity','-Infinity','aaa','1e1000'):
             with self.assertRaises(ValueError):
                 D(value)
+
+    def test_changed_prices_cannot_hide_in_same_total(self):
+        self.reg.product('002','Caja',250)
+        for code in ('001','002'):
+            order=self.reg.order('P',code,'2',100)
+            self.reg.receive(order,'2','entrada-'+code)
+        self.reg.open_till(0)
+        self.reg.product('001','Bolsa',200)
+        self.reg.product('002','Caja',300)
+        with self.assertRaisesRegex(ValueError,'Cambió el precio'):
+            self.reg.checkout([('001','1'),('002','1')],{'efectivo':500},None,'vieja',{'001':250,'002':250})
+        self.assertEqual(self.scalar('SELECT COUNT(*) FROM sales'),0)
+        self.assertEqual(self.scalar("SELECT stock_qty FROM products WHERE code='001'"),'2')
+        self.reg.checkout([('001','1'),('002','1')],{'efectivo':500},None,'nueva',{'001':200,'002':300})
+
+    def test_sales_period_state_and_exact_totals(self):
+        order=self.reg.order('P','001','5',100)
+        self.reg.receive(order,'5','entrada')
+        self.reg.open_till(0)
+        first=self.reg.checkout([('001','1')],{'efectivo':250},None,'primera')
+        second=self.reg.checkout([('001','2')],{'tarjeta':500},None,'segunda')
+        with self.db:
+            self.db.execute("UPDATE sales SET created_at='2026-10-01T12:00:00+00:00' WHERE id=?",(first['id'],))
+            self.db.execute("UPDATE sales SET created_at='2026-11-01T12:00:00+00:00' WHERE id=?",(second['id'],))
+        self.reg.reverse(second['receipt_number'],'Prueba')
+        rows,totals=sales_report(self.db,'2026-10-01','2026-10-31')
+        self.assertEqual(([r['ticket'] for r in rows],totals),([first['receipt_number']],{'confirmed':250,'cancelled':0}))
+        rows,totals=sales_report(self.db)
+        self.assertEqual(totals,{'confirmed':250,'cancelled':500})
+        self.assertEqual(len(sales_report(self.db,state='Registradas')[0]),1)
+        self.assertEqual(sales_report(self.db,state='Anuladas')[0][0]['ticket'],second['receipt_number'])
+        self.assertEqual(sales_report(self.db,'2027-01-01')[1],{'confirmed':0,'cancelled':0})
+        for start,end in [('2026-02-30',''),('2026-11-02','2026-11-01'),('01/11/2026','')]:
+            with self.assertRaises(ValueError):
+                sales_report(self.db,start,end)

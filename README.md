@@ -14,6 +14,7 @@ En Windows con Python 3.10+ y Tkinter, ejecutar INICIAR_WINDOWS.bat. En macOS, e
 4. Abrir caja, elegir productos, armar el carrito y cobrar. Se puede identificar al cliente y combinar efectivo, transferencia y tarjeta. Los importes deben sumar el total. Los movimientos manuales, apertura, arqueo y cierre quedan registrados.
 5. El administrador puede anular una venta completa y revertir los pagos en la caja abierta. Los tickets y movimientos originales permanecen consultables.
 6. Consultar el historial, existencias críticas y movimientos. Exportar informes a CSV compatible con Excel.
+   En Ventas se puede filtrar por fechas locales inclusivas (AAAA-MM-DD) y estado. Los totales exactos abarcan todo el período; la pantalla muestra hasta 500 filas y el CSV incluye todas las coincidencias. Las anulaciones se separan del total registrado según fecha de venta, no fecha de devolución.
 7. Crear respaldos manuales o usar la copia diaria al ingresar. La restauración comprueba esquema, integridad y referencias, conserva una copia previa y obliga a volver a ingresar.
 
 ## Instalador de Windows
@@ -23,6 +24,8 @@ El flujo de compilación usa un runner Windows estándar únicamente en reposito
 ## Validación
 
 Ejecutar python -m unittest discover -s tests -v. Las pruebas utilizan datos sintéticos y bases temporales. No incluir Excel reales, copias locales, claves ni bases en Git. El código de la rama principal en 4fbb4e1 conserva la versión anterior.
+
+El cobro verifica cada precio mostrado antes de escribir la venta. Si cambió mientras se confirmaba, actualiza el carrito y exige revisar nuevamente. La prueba nativa de Tk se ejecuta cuando hay pantalla disponible (incluido Windows); se omite explícitamente en entornos sin pantalla.
 
 ## Alcance pendiente
 

@@ -225,11 +225,16 @@ class Register:
             self.db.execute('INSERT INTO cash_entries VALUES(?,?,?,?,?,?)',(uid(),self.till()['id'],amount,reason,now(),self.actor))
             self.log('movimiento_caja',importe=amount,motivo=reason)
 
-    def checkout(self,items,payments,customer,request_id):
+    def checkout(self,items,payments,customer,request_id,expected_prices=None):
         with transaction(self.db):
             if self.db.execute('SELECT 1 FROM checkouts WHERE id=?',(request_id,)).fetchone():
                 raise ValueError('Esta venta ya fue registrada')
             till=self.till()['id']
+            if expected_prices is not None:
+                for code, _ in items:
+                    row=self.db.execute('SELECT unit_price_cents FROM products WHERE code=?',(code,)).fetchone()
+                    if not row or code not in expected_prices or row[0]!=expected_prices[code]:
+                        raise ValueError('Cambió el precio de '+code+'. Revisá el carrito antes de cobrar')
             if not payments or any(k not in ('efectivo','tarjeta','transferencia') or type(v)!=int or v<=0 for k,v in payments.items()):
                 raise ValueError('Medios o importes inválidos')
             sale=sell(self.db,items,' + '.join(payments),managed=True)
