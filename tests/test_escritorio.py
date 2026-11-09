@@ -3,6 +3,7 @@ import tempfile
 import tkinter as tk
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from escritorio import Desk
 from operaciones import bootstrap, Register
 from papelera_os import connect, D
@@ -33,6 +34,15 @@ class DesktopTests(unittest.TestCase):
                 desk.basket={'QA':D('1')}
                 desk.refresh()
                 self.assertEqual(desk.cart_prices,{'QA':300})
+                with patch.object(desk,'ask',side_effect=[['0.50','Promoción'],['2.50','0','0','Consumidor final']]), patch('escritorio.messagebox.askyesno',return_value=True), patch('escritorio.messagebox.showinfo') as info:
+                    desk.pay()
+                    self.assertIn('DESCUENTO: $ 0.50',info.call_args.args[1])
+                    self.assertIn('TOTAL: $ 2.50',info.call_args.args[1])
+                self.assertEqual(desk.basket,{})
+                with patch.object(desk,'ask',return_value=['2']), patch('escritorio.messagebox.showinfo') as info:
+                    desk.reprint()
+                    self.assertIn('DESCUENTO: $ 0.50',info.call_args.args[1])
+                    self.assertIn('TOTAL: $ 2.50',info.call_args.args[1])
                 desk.date_start.set('2099-01-01')
                 desk.show_report()
                 self.assertEqual(len(desk.history.get_children()),0)

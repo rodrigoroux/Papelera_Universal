@@ -12,6 +12,7 @@ En Windows con Python 3.10+ y Tkinter, ejecutar INICIAR_WINDOWS.bat. En macOS, e
 2. Cargar Del Mar y buscar una fila. Validar el artículo, la escala y cuántas unidades base contiene la presentación. La propuesta conserva el precio de venta por defecto. Un recálculo requiere elegir fórmula, revisar y aprobar. El umbral de variación es configurable.
 3. Crear pedidos de compra por artículo, recibir total o parcialmente, y consultar las cantidades pendientes. Cada recepción incrementa existencias sin sobrescribir el costo aprobado.
 4. Abrir caja, elegir productos, armar el carrito y cobrar. Se puede identificar al cliente y combinar efectivo, transferencia y tarjeta. Los importes deben sumar el total. Los movimientos manuales, apertura, arqueo y cierre quedan registrados.
+   El administrador puede aplicar un descuento en pesos al total, con motivo obligatorio, antes de cobrar. El descuento debe ser menor que el subtotal. Se conserva en auditoría y reimpresión; caja e informes usan el total neto. Los vendedores cobran sin descuento.
 5. El administrador puede anular una venta completa y revertir los pagos en la caja abierta. Los tickets y movimientos originales permanecen consultables.
 6. Consultar el historial, existencias críticas y movimientos. Exportar informes a CSV compatible con Excel.
    En Ventas se puede filtrar por fechas locales inclusivas (AAAA-MM-DD) y estado. Los totales exactos abarcan todo el período; la pantalla muestra hasta 500 filas y el CSV incluye todas las coincidencias. Las anulaciones se separan del total registrado según fecha de venta, no fecha de devolución.
@@ -29,7 +30,9 @@ El cobro verifica cada precio mostrado antes de escribir la venta. Si cambió mi
 
 ## Alcance pendiente
 
-Validar instalación y operación en la PC real del local, medios de impresión y significado de los tramos del Excel. La anulación cubre la venta completa. Los precios por presentación/segmento, descuentos, promociones, devoluciones parciales, informes de rentabilidad y la integración fiscal requieren trabajo adicional. La solicitud fiscal local queda pendiente y no solicita ni almacena un CAE.
+Validar instalación y operación en la PC real del local, medios de impresión y significado de los tramos del Excel. La anulación cubre la venta completa. Los precios por presentación/segmento, promociones automáticas, descuentos por línea o porcentaje, devoluciones parciales, informes de rentabilidad y la integración fiscal requieren trabajo adicional. La solicitud fiscal local queda pendiente y no solicita ni almacena un CAE.
+
+Versión 0.3: la migración de descuentos conserva ventas anteriores y crea copia previa cuando hay datos comerciales. Se pueden restaurar respaldos de las versiones anteriores; no abrir una base actualizada con un ejecutable antiguo.
 
 La próxima integración debe validar con ARCA el régimen fiscal, el punto de venta, los certificados y la autorización WSAA para WSFEv1. Ante una respuesta incierta es necesario consultar el comprobante en el entorno correcto antes de reintentar. Referencias oficiales: https://www.arca.gob.ar/ws/documentacion/ws-factura-electronica.asp y https://www.arca.gob.ar/fe/ayuda/homologacion_externa.asp.
 
