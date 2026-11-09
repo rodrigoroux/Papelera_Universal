@@ -6,6 +6,7 @@ from decimal import Decimal
 
 from papelera_os import D, receipt, import_universal, import_delmar, adjust_stock, backup
 from operaciones import Register, bootstrap, daily_backup, restore, uid
+from informes import sales_report
 
 
 def pesos(cents):
@@ -98,6 +99,18 @@ class Desk:
         picker=ttk.Combobox(self.reports,textvariable=self.report,values=list(REPORTS),state='readonly')
         picker.pack(anchor='w')
         picker.bind('<<ComboboxSelected>>',lambda e:self.show_report())
+        filters=ttk.Frame(self.reports)
+        filters.pack(fill='x')
+        self.date_start=tk.StringVar()
+        self.date_end=tk.StringVar()
+        self.sale_state=tk.StringVar(value='Todas')
+        for label,var in [('Desde AAAA-MM-DD',self.date_start),('Hasta AAAA-MM-DD',self.date_end)]:
+            ttk.Label(filters,text=label).pack(side='left')
+            ttk.Entry(filters,textvariable=var,width=12).pack(side='left',padx=4)
+        ttk.Combobox(filters,textvariable=self.sale_state,values=('Todas','Registradas','Anuladas'),state='readonly',width=13).pack(side='left')
+        ttk.Button(filters,text='Aplicar',command=lambda:self.action(self.show_report)).pack(side='left')
+        self.report_total=tk.StringVar()
+        ttk.Label(self.reports,textvariable=self.report_total).pack(anchor='w')
         self.history=self.grid(self.reports,['Detalle'])
         self.buttons(self.reports,[('Exportar CSV',self.export),('Reimprimir ticket',self.reprint),('Solicitud fiscal pendiente',self.pending)])
         self.control=self.tab('Respaldo y usuarios')
@@ -176,6 +189,7 @@ class Desk:
                     vals[-1]=pesos(vals[-1])
                 tree.insert('','end',iid=str(r[0]),values=vals)
         self.cart.delete(*self.cart.get_children())
+        self.cart_prices={}
         total=0
         from decimal import ROUND_HALF_UP
         for code,q in self.basket.items():
@@ -184,6 +198,7 @@ class Desk:
                 raise ValueError('Artículo sin precio vigente: '+code)
             line=int((q*p[1]).quantize(Decimal(1),rounding=ROUND_HALF_UP))
             total+=line
+            self.cart_prices[code]=p[1]
             self.cart.insert('','end',iid=code,values=(code,p[0],str(q),pesos(p[1]),pesos(line)))
         self.amount=total
         self.total.set('Total $ '+pesos(total))
@@ -235,11 +250,16 @@ class Desk:
         self.service.till()
         if not self.basket:
             raise ValueError('Carrito vacío')
+        expected_prices=dict(self.cart_prices)
         clients=['Consumidor final']+[f"{r[0]} · {r[1]}" for r in self.db.execute('SELECT id,name FROM customers ORDER BY name')]
         cash,card,transfer,customer=self.ask('Cobrar $ '+pesos(self.amount),('Efectivo $',pesos(self.amount)),('Tarjeta $','0'),('Transferencia $','0'),('Cliente',tuple(clients)))
         pays={k:cents(v) for k,v in zip(('efectivo','tarjeta','transferencia'),(cash,card,transfer)) if D(v)!=0}
         if messagebox.askyesno('Confirmar venta','¿Registrar el cobro de $ '+pesos(self.amount)+'?'):
-            data=self.service.checkout(list(self.basket.items()),pays,None if customer==clients[0] else int(customer.split(' · ')[0]),uid())
+            try:
+                data=self.service.checkout(list(self.basket.items()),pays,None if customer==clients[0] else int(customer.split(' · ')[0]),uid(),expected_prices)
+            except ValueError:
+                self.refresh()
+                raise
             self.basket.clear()
             messagebox.showinfo('Ticket interno',receipt(data))
 
@@ -294,25 +314,36 @@ class Desk:
     def threshold(self):
         self.service.threshold(self.ask('Alerta',('Variación límite (%)',''))[0])
 
-    def show_report(self):
+    def report_data(self):
+        if self.report.get()=='Ventas':
+            rows,totals=sales_report(self.db,self.date_start.get().strip(),self.date_end.get().strip(),self.sale_state.get())
+            self.report_total.set(f"{len(rows)} ventas · Registradas $ {pesos(totals['confirmed'])} · Anuladas $ {pesos(totals['cancelled'])}. Fecha de venta; las anuladas se excluyen del total registrado.")
+            return ['Ticket','Fecha','Cliente','Total $','Medio','Estado'],[(r['ticket'],r['fecha'],r['cliente'],pesos(r['total_cents']),r['medio'],r['estado']) for r in rows]
+        self.report_total.set('Vista: primeras 500 filas. CSV: todas las filas. Los filtros de fecha y estado se aplican a Ventas.')
         sql=REPORTS[self.report.get()]
         rows=self.db.execute(sql)
-        labels=[c[0] for c in rows.description]
+        return [c[0] for c in rows.description],rows
+
+    def show_report(self):
+        labels,rows=self.report_data()
         self.history.delete(*self.history.get_children())
         self.history.configure(columns=labels)
         for label in labels:
             self.history.heading(label,text=label)
             self.history.column(label,width=105,minwidth=40)
-        for row in rows.fetchmany(500):
+        import itertools
+        for row in itertools.islice(rows,500):
             self.history.insert('','end',values=[v if v is not None else '' for v in row])
+        if self.report.get()=='Ventas' and len(rows)>500:
+            self.report_total.set(self.report_total.get()+' Vista: primeras 500; CSV completo.')
 
     def export(self):
+        labels,rows=self.report_data()
         path=filedialog.asksaveasfilename(defaultextension='.csv',filetypes=[('CSV para Excel','*.csv')])
         if path:
-            rows=self.db.execute(REPORTS[self.report.get()])
             with open(path,'w',encoding='utf-8-sig',newline='') as f:
                 w=csv.writer(f,delimiter=';')
-                w.writerow([r[0] for r in rows.description])
+                w.writerow(labels)
                 for r in rows:
                     w.writerow(["'"+v if isinstance(v,str) and v.startswith(('=','+','-','@','\t','\r')) else v for v in r])
 

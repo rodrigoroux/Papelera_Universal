@@ -1,6 +1,8 @@
 name: Instalador Windows
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [desarrollo/operacion-local]
   push:
     branches: [desarrollo/operacion-local]
 permissions:
@@ -23,6 +25,7 @@ jobs:
         shell: pwsh
         run: ./packaging/verify.ps1
       - name: Publicar instalador de prueba verificado
+        if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
